@@ -46,6 +46,7 @@ import static com.artillexstudios.axplayerwarps.AxPlayerWarps.LANG;
 import static com.artillexstudios.axplayerwarps.AxPlayerWarps.MESSAGEUTILS;
 
 public class WarpsGui extends GuiFrame {
+
     private static final Config GUI = new Config(new File(AxPlayerWarps.getInstance().getDataFolder(), "guis/warps.yml"),
             AxPlayerWarps.getInstance().getResource("guis/warps.yml"),
             GeneralSettings.builder().setUseDefaults(false).build(),

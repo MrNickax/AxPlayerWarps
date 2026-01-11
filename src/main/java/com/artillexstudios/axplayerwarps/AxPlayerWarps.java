@@ -9,7 +9,6 @@ import com.artillexstudios.axapi.libs.boostedyaml.settings.dumper.DumperSettings
 import com.artillexstudios.axapi.libs.boostedyaml.settings.general.GeneralSettings;
 import com.artillexstudios.axapi.libs.boostedyaml.settings.loader.LoaderSettings;
 import com.artillexstudios.axapi.libs.boostedyaml.settings.updater.UpdaterSettings;
-import com.artillexstudios.axapi.metrics.AxMetrics;
 import com.artillexstudios.axapi.utils.AsyncUtils;
 import com.artillexstudios.axapi.utils.MessageUtils;
 import com.artillexstudios.axapi.utils.StringUtils;
@@ -18,9 +17,7 @@ import com.artillexstudios.axguiframework.GuiManager;
 import com.artillexstudios.axplayerwarps.category.CategoryManager;
 import com.artillexstudios.axplayerwarps.commands.CommandManager;
 import com.artillexstudios.axplayerwarps.database.Database;
-import com.artillexstudios.axplayerwarps.database.impl.H2;
 import com.artillexstudios.axplayerwarps.database.impl.MySQL;
-import com.artillexstudios.axplayerwarps.database.impl.PostgreSQL;
 import com.artillexstudios.axplayerwarps.guis.BlacklistGui;
 import com.artillexstudios.axplayerwarps.guis.CategoryGui;
 import com.artillexstudios.axplayerwarps.guis.EditWarpGui;
@@ -37,12 +34,16 @@ import com.artillexstudios.axplayerwarps.listeners.MoveListener;
 import com.artillexstudios.axplayerwarps.listeners.PlayerListeners;
 import com.artillexstudios.axplayerwarps.listeners.WorldListeners;
 import com.artillexstudios.axplayerwarps.placeholders.WarpPlaceholders;
+import com.artillexstudios.axplayerwarps.redis.WarpMessageHandler;
 import com.artillexstudios.axplayerwarps.sorting.SortingManager;
 import com.artillexstudios.axplayerwarps.utils.UpdateNotifier;
 import com.artillexstudios.axplayerwarps.warps.WarpManager;
 import com.artillexstudios.axplayerwarps.warps.WarpQueue;
 import com.artillexstudios.axplayerwarps.world.WorldManager;
-import org.bstats.bukkit.Metrics;
+import com.nickax.yadro.core.connection.LettuceConnectionConfig;
+import com.nickax.yadro.core.messaging.LettucePublisher;
+import com.nickax.yadro.core.messaging.LettuceSubscriber;
+import com.nickax.yadro.paper.server.ServerTransfer;
 import org.bukkit.Bukkit;
 import revxrsal.zapper.DependencyManager;
 import revxrsal.zapper.relocation.Relocation;
@@ -50,6 +51,7 @@ import revxrsal.zapper.relocation.Relocation;
 import java.io.File;
 
 public final class AxPlayerWarps extends AxPlugin {
+
     private static AxPlugin instance;
     private static ThreadedQueue<Runnable> threadedQueue;
     private static Database database;
@@ -59,7 +61,10 @@ public final class AxPlayerWarps extends AxPlugin {
     public static Config LANG;
     public static Config CURRENCIES;
     public static Config INPUT;
-    private static AxMetrics metrics;
+    public static LettucePublisher PUBLISHER;
+    public static String REDIS_CHANNEL;
+    public static ServerTransfer SERVER_TRANSFER;
+    private LettuceSubscriber subscriber;
 
     public static ThreadedQueue<Runnable> getThreadedQueue() {
         return threadedQueue;
@@ -94,7 +99,6 @@ public final class AxPlayerWarps extends AxPlugin {
     // - desc color codes
     // - teleport price tax
     public void enable() {
-        new Metrics(this, 21645);
         instance = this;
 
         CONFIG = new Config(new File(getDataFolder(), "config.yml"), getResource("config.yml"), GeneralSettings.builder().setUseDefaults(false).build(), LoaderSettings.builder().setAutoUpdate(true).build(), DumperSettings.DEFAULT, UpdaterSettings.builder().setVersioning(new BasicVersioning("version")).build());
@@ -108,6 +112,25 @@ public final class AxPlayerWarps extends AxPlugin {
         threadedQueue = new ThreadedQueue<>("AxPlayerWarps-Datastore-thread");
 
         MESSAGEUTILS = new MessageUtils(LANG.getBackingDocument(), "prefix", CONFIG.getBackingDocument());
+
+        LettuceConnectionConfig lettuceConnectionConfig = LettuceConnectionConfig.builder(
+                CONFIG.getString("redis.address"),
+                CONFIG.getInt("redis.port"),
+                null,
+                null,
+                CONFIG.getString("redis.username"),
+                CONFIG.getString("redis.password"),
+                getLogger()
+        ).build();
+
+        PUBLISHER = new LettucePublisher(lettuceConnectionConfig);
+        REDIS_CHANNEL = CONFIG.getString("redis.channel");
+
+        SERVER_TRANSFER = new ServerTransfer(this);
+        SERVER_TRANSFER.enable();
+
+        subscriber = new LettuceSubscriber(lettuceConnectionConfig);
+        subscriber.listen(new String[]{REDIS_CHANNEL}, new WarpMessageHandler());
 
         CategoryGui.reload();
         GuiManager.registerGuiType("categories", CategoryGui.class);
@@ -126,13 +149,7 @@ public final class AxPlayerWarps extends AxPlugin {
 
         WarpPlaceholders.load();
 
-        switch (CONFIG.getString("database.type").toLowerCase()) {
-//            case "sqlite" -> database = new SQLite();
-            case "mysql" -> database = new MySQL();
-            case "postgresql" -> database = new PostgreSQL();
-            default -> database = new H2();
-        }
-
+        database = new MySQL();
         database.setup();
 
         HookManager.setupHooks();
@@ -151,16 +168,15 @@ public final class AxPlayerWarps extends AxPlugin {
         getServer().getPluginManager().registerEvents(new MoveListener(), this);
         getServer().getPluginManager().registerEvents(new InputListener(), this);
 
-        metrics = new AxMetrics(this, 17);
-        metrics.start();
-
         Bukkit.getConsoleSender().sendMessage(StringUtils.formatToString("&#44f1d7[AxPlayerWarps] Loaded plugin! Using &f" + database.getType() + " &#44f1d7database to store data!"));
 
         if (CONFIG.getBoolean("update-notifier.enabled", true)) new UpdateNotifier(this, 6657);
     }
 
     public void disable() {
-        if (metrics != null) metrics.cancel();
+        SERVER_TRANSFER.disable();
+        subscriber.close();
+        PUBLISHER.close();
         database.disable();
         AsyncUtils.stop();
     }

@@ -7,6 +7,7 @@ import org.bukkit.World;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class WorldManager {
+
     private static final ConcurrentHashMap<World, Integer> worlds = new ConcurrentHashMap<>();
 
     public static void reload() {
@@ -24,9 +25,7 @@ public class WorldManager {
     }
 
     public static void onWorldLoad(World world) {
-        AxPlayerWarps.getThreadedQueue().submit(() -> {
-            WorldManager.getWorlds().put(world, AxPlayerWarps.getDatabase().getWorldId(world));
-        });
+        AxPlayerWarps.getThreadedQueue().submit(() -> WorldManager.getWorlds().put(world, AxPlayerWarps.getDatabase().getWorldId(world)));
     }
 
     public static void onWorldUnload(World world) {

@@ -12,11 +12,13 @@ import com.artillexstudios.axplayerwarps.utils.SimpleRegex;
 import com.artillexstudios.axplayerwarps.utils.WarpNameUtils;
 import com.artillexstudios.axplayerwarps.warps.Warp;
 import com.artillexstudios.axplayerwarps.warps.WarpManager;
+import com.nickax.redisplayerlist.server.api.RedisPlayerListServerAPI;
 import org.bukkit.Location;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -28,6 +30,13 @@ public enum Create {
 
     private final Cooldown<Player> cooldown = Cooldown.create();
     public void execute(Player sender, String warpName, @Nullable OfflinePlayer setPlayer) {
+        String currentServer = RedisPlayerListServerAPI.getServerId();
+        List<String> allowedServers = CONFIG.getStringList("allowed-servers");
+        if (!allowedServers.isEmpty() && !allowedServers.contains(currentServer)) {
+            MESSAGEUTILS.sendLang(sender, "errors.disallowed-server");
+            return;
+        }
+
         WarpUser user = Users.get(sender);
         long limit = user.getWarpLimit();
         long warps = WarpManager.getWarps().stream().filter(warp -> warp.getOwner().equals(sender.getUniqueId())).count();
@@ -103,7 +112,7 @@ public enum Create {
         AxPlayerWarps.getThreadedQueue().submit(() -> {
             OfflinePlayer usedPlayer = setPlayer == null ? sender : setPlayer;
             int id = AxPlayerWarps.getDatabase().createWarp(usedPlayer, warpLocation, warpName);
-            Warp warp = new Warp(id, System.currentTimeMillis(), null, warpName, warpLocation, warpLocation.getWorld().getName(), null, usedPlayer.getUniqueId(), usedPlayer.getName(), Access.PUBLIC, null, 0, 0, null);
+            Warp warp = new Warp(id, System.currentTimeMillis(), null, warpName, warpLocation, warpLocation.getWorld().getName(), null, usedPlayer.getUniqueId(), usedPlayer.getName(), Access.PUBLIC, null, 0, 0, null, RedisPlayerListServerAPI.getServerId());
             MESSAGEUTILS.sendLang(sender, "create.created", Map.of("%warp%", warpName, "%price%", FormatUtils.formatCurrency(currencyHook, price)));
             WarpManager.getWarps().add(warp);
         });

@@ -112,5 +112,7 @@ public interface Database {
 
     void loadWarps();
 
+    void loadWarp(int id);
+
     void disable();
 }

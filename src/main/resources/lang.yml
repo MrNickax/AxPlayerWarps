@@ -130,6 +130,7 @@ errors:
   create-not-enough-currency: "&#FF4444You need to have &#FF0000%price% &#FF4444to create a warp!"
   cannot-create-here: "&#FF4444You can't create a warp here, because it is in a protected area."
   disallowed-world: "&#FF4444You can't create warps in this world."
+  disallowed-server: "&cYou cannot create a warp on this server!"
   blacklisted: "&#FF4444You can not teleport to the &#FF0000%warp% &#FF4444warp, because you are blacklisted!"
   whitelisted: "&#FF4444You can not teleport to the &#FF0000%warp% &#FF4444warp, because it is whitelisted and you are not on the whitelist!"
   private: "&#FF4444The &#FF0000%warp% &#FF4444is currently set to private, only the owner can teleport to it!"

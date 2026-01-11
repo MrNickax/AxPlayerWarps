@@ -1,6 +1,7 @@
 package com.artillexstudios.axplayerwarps.database.impl;
 
 import com.artillexstudios.axapi.utils.Pair;
+import com.artillexstudios.axplayerwarps.AxPlayerWarps;
 import com.artillexstudios.axplayerwarps.category.Category;
 import com.artillexstudios.axplayerwarps.category.CategoryManager;
 import com.artillexstudios.axplayerwarps.database.Database;
@@ -14,6 +15,7 @@ import com.artillexstudios.axplayerwarps.utils.ThreadUtils;
 import com.artillexstudios.axplayerwarps.warps.Warp;
 import com.artillexstudios.axplayerwarps.warps.WarpManager;
 import com.google.common.collect.HashBiMap;
+import com.nickax.redisplayerlist.server.api.RedisPlayerListServerAPI;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -35,6 +37,7 @@ import java.util.UUID;
 
 public class Base implements Database {
     private final HashBiMap<String, UUID> userNameCache = HashBiMap.create();
+
     public Connection getConnection() {
         return null;
     }
@@ -47,124 +50,125 @@ public class Base implements Database {
     @Override
     public void setup() {
         execute("""
-                CREATE TABLE IF NOT EXISTS axplayerwarps_players (
-                	id INT NOT NULL AUTO_INCREMENT,
-                	uuid VARCHAR(36) NOT NULL,
-                	name VARCHAR(128) NOT NULL,
-                	PRIMARY KEY (id),
-                	UNIQUE (uuid)
-                );
-        """);
+                        CREATE TABLE IF NOT EXISTS axplayerwarps_players (
+                        	id INT NOT NULL AUTO_INCREMENT,
+                        	uuid VARCHAR(36) NOT NULL,
+                        	name VARCHAR(128) NOT NULL,
+                        	PRIMARY KEY (id),
+                        	UNIQUE (uuid)
+                        );
+                """);
 
         execute("""
-                CREATE TABLE IF NOT EXISTS axplayerwarps_currencies (
-                	id INT NOT NULL AUTO_INCREMENT,
-                	currency VARCHAR(512) NOT NULL,
-                	PRIMARY KEY (id),
-                	UNIQUE (currency)
-                );
-        """);
+                        CREATE TABLE IF NOT EXISTS axplayerwarps_currencies (
+                        	id INT NOT NULL AUTO_INCREMENT,
+                        	currency VARCHAR(512) NOT NULL,
+                        	PRIMARY KEY (id),
+                        	UNIQUE (currency)
+                        );
+                """);
 
         execute("""
-                CREATE TABLE IF NOT EXISTS axplayerwarps_worlds (
-                	id INT NOT NULL AUTO_INCREMENT,
-                	world VARCHAR(512) NOT NULL,
-                	PRIMARY KEY (id),
-                	UNIQUE (world)
-                );
-        """);
+                        CREATE TABLE IF NOT EXISTS axplayerwarps_worlds (
+                        	id INT NOT NULL AUTO_INCREMENT,
+                        	world VARCHAR(512) NOT NULL,
+                        	PRIMARY KEY (id),
+                        	UNIQUE (world)
+                        );
+                """);
 
         execute("""
-                CREATE TABLE IF NOT EXISTS axplayerwarps_warps (
-                	id INT NOT NULL AUTO_INCREMENT,
-                	owner_id INT NOT NULL,
-                	world_id INT NOT NULL,
-                	x FLOAT NOT NULL,
-                	y FLOAT NOT NULL,
-                	z FLOAT NOT NULL,
-                	yaw FLOAT NOT NULL,
-                	pitch FLOAT NOT NULL,
-                	name VARCHAR(1024) NOT NULL,
-                	description TEXT DEFAULT null,
-                	category_id INT DEFAULT null,
-                	icon_id INT DEFAULT null,
-                	created BIGINT NOT NULL,
-                    currency_id INT DEFAULT null,
-                    price DOUBLE NOT NULL DEFAULT '0',
-                    earned_money DOUBLE NOT NULL DEFAULT '0',
-                    access TINYINT NOT NULL DEFAULT '0',
-                	PRIMARY KEY (id)
-                );
-        """);
+                        CREATE TABLE IF NOT EXISTS axplayerwarps_warps (
+                        	id INT NOT NULL AUTO_INCREMENT,
+                        	owner_id INT NOT NULL,
+                        	world_id INT NOT NULL,
+                        	x FLOAT NOT NULL,
+                        	y FLOAT NOT NULL,
+                        	z FLOAT NOT NULL,
+                        	yaw FLOAT NOT NULL,
+                        	pitch FLOAT NOT NULL,
+                        	name VARCHAR(1024) NOT NULL,
+                        	description TEXT DEFAULT null,
+                        	category_id INT DEFAULT null,
+                        	icon_id INT DEFAULT null,
+                        	created BIGINT NOT NULL,
+                            currency_id INT DEFAULT null,
+                            price DOUBLE NOT NULL DEFAULT '0',
+                            earned_money DOUBLE NOT NULL DEFAULT '0',
+                            access TINYINT NOT NULL DEFAULT '0',
+                            server VARCHAR(255) DEFAULT null,
+                        	PRIMARY KEY (id)
+                        );
+                """);
 
         execute("""
-                CREATE TABLE IF NOT EXISTS axplayerwarps_visits (
-                	id INT NOT NULL AUTO_INCREMENT,
-                	visitor_id INT NOT NULL,
-                	warp_id INT,
-                	date BIGINT,
-                	PRIMARY KEY (id)
-                );
-        """);
+                        CREATE TABLE IF NOT EXISTS axplayerwarps_visits (
+                        	id INT NOT NULL AUTO_INCREMENT,
+                        	visitor_id INT NOT NULL,
+                        	warp_id INT,
+                        	date BIGINT,
+                        	PRIMARY KEY (id)
+                        );
+                """);
 
         execute("""
-                CREATE TABLE IF NOT EXISTS axplayerwarps_ratings (
-                	id INT NOT NULL AUTO_INCREMENT,
-                	reviewer_id INT NOT NULL,
-                	warp_id INT NOT NULL,
-                	stars TINYINT NOT NULL,
-                	date BIGINT,
-                	PRIMARY KEY (id)
-                );
-        """);
+                        CREATE TABLE IF NOT EXISTS axplayerwarps_ratings (
+                        	id INT NOT NULL AUTO_INCREMENT,
+                        	reviewer_id INT NOT NULL,
+                        	warp_id INT NOT NULL,
+                        	stars TINYINT NOT NULL,
+                        	date BIGINT,
+                        	PRIMARY KEY (id)
+                        );
+                """);
 
         execute("""
-                CREATE TABLE IF NOT EXISTS axplayerwarps_categories (
-                	id INT NOT NULL AUTO_INCREMENT,
-                	category VARCHAR(512) NOT NULL,
-                	PRIMARY KEY (id),
-                	UNIQUE (category)
-                );
-        """);
+                        CREATE TABLE IF NOT EXISTS axplayerwarps_categories (
+                        	id INT NOT NULL AUTO_INCREMENT,
+                        	category VARCHAR(512) NOT NULL,
+                        	PRIMARY KEY (id),
+                        	UNIQUE (category)
+                        );
+                """);
 
         execute("""
-                CREATE TABLE IF NOT EXISTS axplayerwarps_materials (
-                	id INT NOT NULL AUTO_INCREMENT,
-                	material VARCHAR(512) NOT NULL,
-                	PRIMARY KEY (id),
-                	UNIQUE (material)
-                );
-        """);
+                        CREATE TABLE IF NOT EXISTS axplayerwarps_materials (
+                        	id INT NOT NULL AUTO_INCREMENT,
+                        	material VARCHAR(512) NOT NULL,
+                        	PRIMARY KEY (id),
+                        	UNIQUE (material)
+                        );
+                """);
 
         execute("""
-                CREATE TABLE IF NOT EXISTS axplayerwarps_favorites (
-                	id INT NOT NULL AUTO_INCREMENT,
-                	player_id INT NOT NULL,
-                	warp_id INT NOT NULL,
-                	date BIGINT,
-                	PRIMARY KEY (id)
-                );
-        """);
+                        CREATE TABLE IF NOT EXISTS axplayerwarps_favorites (
+                        	id INT NOT NULL AUTO_INCREMENT,
+                        	player_id INT NOT NULL,
+                        	warp_id INT NOT NULL,
+                        	date BIGINT,
+                        	PRIMARY KEY (id)
+                        );
+                """);
 
         execute("""
-                CREATE TABLE IF NOT EXISTS axplayerwarps_whitelisted (
-                	id INT NOT NULL AUTO_INCREMENT,
-                	player_id INT NOT NULL,
-                	warp_id INT NOT NULL,
-                	date BIGINT,
-                	PRIMARY KEY (id)
-                );
-        """);
+                        CREATE TABLE IF NOT EXISTS axplayerwarps_whitelisted (
+                        	id INT NOT NULL AUTO_INCREMENT,
+                        	player_id INT NOT NULL,
+                        	warp_id INT NOT NULL,
+                        	date BIGINT,
+                        	PRIMARY KEY (id)
+                        );
+                """);
 
         execute("""
-                CREATE TABLE IF NOT EXISTS axplayerwarps_blacklisted (
-                	id INT NOT NULL AUTO_INCREMENT,
-                	player_id INT NOT NULL,
-                	warp_id INT NOT NULL,
-                	date BIGINT,
-                	PRIMARY KEY (id)
-                );
-        """);
+                        CREATE TABLE IF NOT EXISTS axplayerwarps_blacklisted (
+                        	id INT NOT NULL AUTO_INCREMENT,
+                        	player_id INT NOT NULL,
+                        	warp_id INT NOT NULL,
+                        	date BIGINT,
+                        	PRIMARY KEY (id)
+                        );
+                """);
     }
 
     private void execute(String sql, Object... obj) {
@@ -448,40 +452,51 @@ public class Base implements Database {
     @Override
     public int createWarp(OfflinePlayer player, Location l, String warpName) {
         ThreadUtils.checkNotMain("This method can only be called async!");
-        return insert("""
-                INSERT INTO axplayerwarps_warps
-                (owner_id, world_id, x, y, z, yaw, pitch, name, created)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-                """,
+        String currentServer = RedisPlayerListServerAPI.getServerId();
+        int id = insert("""
+                        INSERT INTO axplayerwarps_warps
+                        (owner_id, world_id, x, y, z, yaw, pitch, name, created, server)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                        """,
                 getPlayerId(player),
                 getWorldId(l.getWorld()),
                 l.getX(), l.getY(), l.getZ(), l.getYaw(), l.getPitch(),
                 warpName,
-                System.currentTimeMillis());
+                System.currentTimeMillis(),
+                currentServer);
+
+        if (id != -1) {
+            // Format: warp_create:warpId:senderServerId
+            AxPlayerWarps.PUBLISHER.publish(AxPlayerWarps.REDIS_CHANNEL, "warp_create:" + id + ":" + currentServer);
+        }
+
+        return id;
     }
 
     @Override
     public void updateWarp(Warp warp) {
         ThreadUtils.checkNotMain("This method can only be called async!");
+        String currentServer = RedisPlayerListServerAPI.getServerId();
         execute("""
-                UPDATE axplayerwarps_warps SET
-                owner_id = ?,
-                world_id = ?,
-                x = ?,
-                y = ?,
-                z = ?,
-                yaw = ?,
-                pitch = ?,
-                name = ?,
-                description = ?,
-                category_id = ?,
-                icon_id = ?,
-                currency_id = ?,
-                price = ?,
-                earned_money = ?,
-                access = ?
-                WHERE id = ?
-                """,
+                        UPDATE axplayerwarps_warps SET
+                        owner_id = ?,
+                        world_id = ?,
+                        x = ?,
+                        y = ?,
+                        z = ?,
+                        yaw = ?,
+                        pitch = ?,
+                        name = ?,
+                        description = ?,
+                        category_id = ?,
+                        icon_id = ?,
+                        currency_id = ?,
+                        price = ?,
+                        earned_money = ?,
+                        access = ?,
+                        server = ?
+                        WHERE id = ?
+                        """,
                 getPlayerId(warp.getOwner()),
                 getWorldId(warp.getLocation().getWorld()),
                 warp.getLocation().getX(),
@@ -497,8 +512,12 @@ public class Base implements Database {
                 warp.getTeleportPrice(),
                 warp.getEarnedMoney(),
                 warp.getAccess().ordinal(),
+                warp.getServer(),
                 warp.getId()
         );
+
+        // Format: warp_update:warpId:senderServerId
+        AxPlayerWarps.PUBLISHER.publish(AxPlayerWarps.REDIS_CHANNEL, "warp_update:" + warp.getId() + ":" + currentServer);
     }
 
     @Override
@@ -515,6 +534,7 @@ public class Base implements Database {
         execute("DELETE FROM axplayerwarps_blacklisted WHERE warp_id = ?;", warp.getId());
 
         WarpManager.getWarps().remove(warp);
+        AxPlayerWarps.PUBLISHER.publish(AxPlayerWarps.REDIS_CHANNEL, "warp_delete:" + warp.getId() + ":" + RedisPlayerListServerAPI.getServerId());
     }
 
     @Override
@@ -805,8 +825,10 @@ public class Base implements Database {
     public void removeFromList(Warp warp, AccessList al, OfflinePlayer player) {
         ThreadUtils.checkNotMain("This method can only be called async!");
         switch (al) {
-            case WHITELIST -> warp.getWhitelisted().removeIf(ap -> ap.player().getUniqueId().equals(player.getUniqueId()));
-            case BLACKLIST -> warp.getBlacklisted().removeIf(ap -> ap.player().getUniqueId().equals(player.getUniqueId()));
+            case WHITELIST ->
+                    warp.getWhitelisted().removeIf(ap -> ap.player().getUniqueId().equals(player.getUniqueId()));
+            case BLACKLIST ->
+                    warp.getBlacklisted().removeIf(ap -> ap.player().getUniqueId().equals(player.getUniqueId()));
         }
         execute("DELETE FROM " + al.getTable() + " WHERE player_id = ? AND warp_id = ?;",
                 getPlayerId(player), warp.getId());
@@ -859,16 +881,22 @@ public class Base implements Database {
         return list;
     }
 
-    public record AccessPlayer(OfflinePlayer player, long added, String name) {}
+    public record AccessPlayer(OfflinePlayer player, long added, String name) {
+    }
 
     @Override
     public void loadWarps() {
+        loadWarp(-1);
+    }
+
+    @Override
+    public void loadWarp(int id) {
         ThreadUtils.checkNotMain("This method can only be called async!");
-        try (Connection conn = getConnection(); PreparedStatement stmt = createStatement(conn,
-                "SELECT * FROM axplayerwarps_warps;")
-        ) {
+        String sql = id == -1 ? "SELECT * FROM axplayerwarps_warps;" : "SELECT * FROM axplayerwarps_warps WHERE id = ?;";
+        try (Connection conn = getConnection(); PreparedStatement stmt = createStatement(conn, sql, id == -1 ? new Object[]{} : new Object[]{id})) {
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
+                    int warpId = rs.getInt("id");
                     String world = getWorldFromId(rs.getInt("world_id"));
                     Location loc = new Location(
                             Bukkit.getWorld(world),
@@ -894,26 +922,28 @@ public class Base implements Database {
                         material = getMaterialFromId(rs.getInt("icon_id"));
                     }
 
-                    Pair<UUID, String> player = getUUIDAndNameFromId(rs.getInt("owner_id"));
-                    if (player == null) continue;
+                    Pair<UUID, String> owner = getUUIDAndNameFromId(rs.getInt("owner_id"));
+                    if (owner == null) continue;
 
                     Warp warp = new Warp(
-                            rs.getInt("id"),
+                            warpId,
                             rs.getLong("created"),
                             rs.getString("description"),
                             rs.getString("name"),
                             loc,
                             world,
                             category,
-                            player.getKey(),
-                            player.getValue(),
+                            owner.getKey(),
+                            owner.getValue(),
                             Access.values()[rs.getInt("access")],
                             currencyHook,
                             rs.getDouble("price"),
                             rs.getDouble("earned_money"),
-                            material
+                            material,
+                            rs.getString("server")
                     );
 
+                    WarpManager.getWarps().removeIf(w -> w.getId() == warpId);
                     WarpManager.getWarps().add(warp);
                 }
             }

@@ -3,7 +3,6 @@ package com.artillexstudios.axplayerwarps.commands;
 import com.artillexstudios.axapi.utils.StringUtils;
 import com.artillexstudios.axplayerwarps.AxPlayerWarps;
 import com.artillexstudios.axplayerwarps.commands.annotations.AllWarps;
-import com.artillexstudios.axplayerwarps.commands.subcommands.Converter;
 import com.artillexstudios.axplayerwarps.commands.subcommands.Reload;
 import com.artillexstudios.axplayerwarps.enums.AccessList;
 import com.artillexstudios.axplayerwarps.enums.Converters;
@@ -78,11 +77,5 @@ public class AdminCommand implements OrphanCommand {
 
             MESSAGEUTILS.sendLang(sender, "admin.setowner", Map.of("%warp%", warp.getName(), "%player%", player.getName() == null ? "---" : player.getName()));
         });
-    }
-
-    @Subcommand("converter")
-    @CommandPermission("axplayerwarps.admin.converter")
-    public void converter(CommandSender sender, Converters converters) {
-        Converter.INSTANCE.execute(sender, converters);
     }
 }

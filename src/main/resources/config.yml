@@ -2,22 +2,25 @@
 
 prefix: "<gradient:#33EEBB:#3388BB><b>AxPlayerWarps</b></gradient> &7» "
 
-database:
-  # options: h2, mysql, postgresql
-  type: "h2"
-
-  # you only need to touch these when using mysql or postgresql
+mysql:
   address: 127.0.0.1
   port: 3306
-  database: admin
-  username: admin
-  password: 'admin'
+  database: 'axplayerwarps'
+  username: 'username'
+  password: 'password'
   pool:
     maximum-pool-size: 10
     minimum-idle: 10
     maximum-lifetime: 1800000
     keepalive-time: 0
     connection-timeout: 5000
+
+redis:
+  address: 127.0.0.1
+  port: 6379
+  username: 'username'
+  password: 'password'
+  channel: 'axplayerwarps'
 
 # you must define at least 1
 # requires a restart to update
@@ -81,6 +84,10 @@ warp-naming:
 # you can use the regex options from the section above (warp-naming.disallowed)
 disallowed-worlds:
   - "blacklisted_world_name"
+
+# servers where creating warps is allowed
+# if empty, warps can be created on any server
+allowed-servers: []
 
 # which material should we use if the player doesn't define an icon for their warp?
 # PLAYER_HEAD will default to the owner's skull (note: sometimes it may not load)

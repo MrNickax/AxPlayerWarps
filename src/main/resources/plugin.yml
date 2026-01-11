@@ -34,6 +34,10 @@ permissions:
   axplayerwarps.admin.converter:
     default: op
 
+depend:
+  - Yadro-Paper
+  - RedisPlayerList-Server
+
 softdepend:
   - PlaceholderAPI
   - BentoBox

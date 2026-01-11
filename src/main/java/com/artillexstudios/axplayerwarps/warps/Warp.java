@@ -11,6 +11,7 @@ import com.artillexstudios.axplayerwarps.enums.Access;
 import com.artillexstudios.axplayerwarps.enums.AccessList;
 import com.artillexstudios.axplayerwarps.hooks.currency.CurrencyHook;
 import com.artillexstudios.axplayerwarps.placeholders.WarpPlaceholders;
+import com.nickax.redisplayerlist.server.api.RedisPlayerListServerAPI;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -28,12 +29,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import static com.artillexstudios.axplayerwarps.AxPlayerWarps.CONFIG;
 import static com.artillexstudios.axplayerwarps.AxPlayerWarps.MESSAGEUTILS;
 
 public class Warp {
+
+    private static final ConcurrentHashMap<UUID, Consumer<String>> pendingValidations = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, String> pendingTeleports = new ConcurrentHashMap<>();
+
     private final int id;
     private UUID owner;
     private String ownerName;
@@ -53,12 +60,13 @@ public class Warp {
     private HashSet<UUID> visitors = new HashSet<>();
     private List<Base.AccessPlayer> whitelisted = Collections.synchronizedList(new ArrayList<>());
     private List<Base.AccessPlayer> blacklisted = Collections.synchronizedList(new ArrayList<>());
-    private String worldName;
+    private final String worldName;
+    private String server;
 
     public Warp(int id, long created, @Nullable String description, String name,
                 Location location, String worldName, @Nullable Category category,
                 UUID owner, String ownerName, Access access, @Nullable CurrencyHook currency,
-                double teleportPrice, double earnedMoney, @Nullable Material icon
+                double teleportPrice, double earnedMoney, @Nullable Material icon, String server
     ) {
         location.setX(location.getBlockX());
         location.setY(location.getBlockY());
@@ -78,6 +86,7 @@ public class Warp {
         this.teleportPrice = teleportPrice;
         this.earnedMoney = earnedMoney;
         this.icon = icon;
+        this.server = server;
 
         AxPlayerWarps.getThreadedQueue().submit(() -> {
             favorites = AxPlayerWarps.getDatabase().getFavorites(this);
@@ -90,7 +99,7 @@ public class Warp {
     }
 
     public void reload() {
-        // reload category & other stuff
+        // reload category and other stuff
     }
 
     public int getId() {
@@ -111,6 +120,7 @@ public class Warp {
 
     public void setLocation(Location location) {
         this.location = location;
+        setServer(RedisPlayerListServerAPI.getServerId());
     }
 
     public String getName() {
@@ -261,6 +271,14 @@ public class Warp {
         return al == AccessList.WHITELIST ? whitelisted : blacklisted;
     }
 
+    public String getServer() {
+        return server;
+    }
+
+    public void setServer(String server) {
+        this.server = server;
+    }
+
     public boolean isPaid() {
         return currency != null && teleportPrice > 0;
     }
@@ -293,7 +311,62 @@ public class Warp {
 
     private final Cooldown<Player> confirmUnsafe = Cooldown.create();
     private final Cooldown<Player> confirmPaid = Cooldown.create();
+
+    public static void handleValidationResponse(UUID requestId, String result) {
+        Consumer<String> callback = pendingValidations.remove(requestId);
+        if (callback != null) {
+            callback.accept(result);
+        }
+    }
+
+    public static void addPendingTeleport(UUID playerUuid, String warpName) {
+        pendingTeleports.put(playerUuid, warpName);
+    }
+
+    public static void handlePlayerJoin(Player player) {
+        String warpName = pendingTeleports.remove(player.getUniqueId());
+        if (warpName == null) return;
+
+        WarpManager.getWarps().stream()
+                .filter(w -> w.getName().equalsIgnoreCase(warpName))
+                .findFirst().ifPresent(warp -> warp.completeTeleportPlayer(player));
+    }
+
     public void teleportPlayer(Player player) {
+        String currentServer = RedisPlayerListServerAPI.getServerId();
+
+        if (server != null && !server.equalsIgnoreCase(currentServer)) {
+            UUID requestId = UUID.randomUUID();
+            boolean noConfirm = confirmUnsafe.hasCooldown(player);
+
+            // Format: validate_req:OriginServer:TargetServer:RequestId:PlayerUUID:WarpName:noConfirm
+            String message = String.format("validate_req:%s:%s:%s:%s:%s:%b",
+                    currentServer, server, requestId, player.getUniqueId(), name, noConfirm);
+
+            pendingValidations.put(requestId, (result) -> Bukkit.getScheduler().runTask(AxPlayerWarps.getInstance(), () -> {
+                if (result.equals("SUCCESS")) {
+                    // Remote validation passed, now send the player
+                    String telMessage = String.format("teleport:%s:%s:%s", server, player.getUniqueId(), name);
+                    AxPlayerWarps.PUBLISHER.publish(AxPlayerWarps.REDIS_CHANNEL, telMessage);
+                    if (AxPlayerWarps.SERVER_TRANSFER != null) {
+                        AxPlayerWarps.SERVER_TRANSFER.send(player, server);
+                    }
+                } else if (result.startsWith("ERROR:")) {
+                    String langKey = result.substring(6);
+
+                    // If the remote server says it's unsafe, start the local confirmation cooldown
+                    if (langKey.equals("confirm.unsafe")) {
+                        confirmUnsafe.addCooldown(player, CONFIG.getLong("confirmation-milliseconds"));
+                    }
+
+                    MESSAGEUTILS.sendLang(player, langKey, Map.of("%warp%", getName()));
+                }
+            }));
+
+            AxPlayerWarps.PUBLISHER.publish(AxPlayerWarps.REDIS_CHANNEL, message);
+            return;
+        }
+
         validateTeleport(player, false, bool -> {
             if (!bool) return;
             if (player.hasPermission("axplayerwarps.delay-bypass")) {
@@ -302,6 +375,46 @@ public class Warp {
             }
             Scheduler.get().runAt(player.getLocation(), player::closeInventory);
             WarpQueue.addToQueue(player, this);
+        });
+    }
+
+    public void validateTeleportRemote(UUID playerUuid, boolean noConfirm, BiConsumer<Boolean, String> callback) {
+        boolean isOwner = playerUuid.equals(owner);
+
+        // 1. World Check
+        World world = Bukkit.getWorld(worldName);
+        if (world == null) {
+            callback.accept(false, "errors.invalid-world");
+            return;
+        }
+
+        // 2. Access/Blacklist/Whitelist
+        if (access == Access.PRIVATE && !isOwner) {
+            callback.accept(false, "errors.private");
+            return;
+        }
+        if (blacklisted.stream().anyMatch(ap -> ap.player().getUniqueId().equals(playerUuid))) {
+            callback.accept(false, "errors.blacklisted");
+            return;
+        }
+        if (access == Access.WHITELISTED && !isOwner && whitelisted.stream().noneMatch(ap -> ap.player().getUniqueId().equals(playerUuid))) {
+            callback.accept(false, "errors.whitelisted");
+            return;
+        }
+
+        // 3. Balance Check
+        if (!isOwner && isPaid() && currency.getBalance(playerUuid) < teleportPrice) {
+            callback.accept(false, "errors.not-enough-balance");
+            return;
+        }
+
+        // 4. Safety Check
+        isDangerous().thenAccept(dangerous -> {
+            if (dangerous && !noConfirm) {
+                callback.accept(false, "confirm.unsafe");
+            } else {
+                callback.accept(true, null);
+            }
         });
     }
 
@@ -381,7 +494,7 @@ public class Warp {
                         currency.getDisplayName().replace("%price%", WarpPlaceholders.format(teleportPrice))));
             }
 
-            // send message
+            // send a message
             MESSAGEUTILS.sendLang(player, "teleport.success", Map.of("%warp%", getName()));
             confirmUnsafe.remove(player);
             confirmPaid.remove(player);
