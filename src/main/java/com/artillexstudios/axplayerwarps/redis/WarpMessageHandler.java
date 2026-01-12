@@ -5,7 +5,6 @@ import com.artillexstudios.axplayerwarps.warps.Warp;
 import com.artillexstudios.axplayerwarps.warps.WarpManager;
 import com.nickax.redisplayerlist.server.api.RedisPlayerListServerAPI;
 import com.nickax.yadro.core.messaging.MessageHandler;
-import org.bukkit.Bukkit;
 
 import java.util.UUID;
 
@@ -38,13 +37,13 @@ public class WarpMessageHandler implements MessageHandler {
                 }
 
                 // Run full validation on the target server
-                Bukkit.getScheduler().runTask(AxPlayerWarps.getInstance(), () -> warp.validateTeleportRemote(playerUuid, noConfirm, (allowed, errorKey) -> {
+                warp.validateTeleportRemote(playerUuid, noConfirm, (allowed, errorKey) -> {
                     if (allowed) {
                         sendResponse(originServer, requestId, "SUCCESS");
                     } else {
                         sendResponse(originServer, requestId, "ERROR:" + errorKey);
                     }
-                }));
+                });
             }
             case "validate_res" -> {
                 if (parts.length < 4) return;
