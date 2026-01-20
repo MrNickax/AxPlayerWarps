@@ -23,7 +23,7 @@ public class WarpMessageHandler implements MessageHandler {
                 if (parts.length < 7) return; // Updated to 7 for noConfirm
                 String originServer = parts[1];
                 String targetServer = parts[2];
-            
+
                 if (!currentServer.equalsIgnoreCase(targetServer)) return;
 
                 UUID requestId = UUID.fromString(parts[3]);
@@ -59,10 +59,15 @@ public class WarpMessageHandler implements MessageHandler {
                 String targetServer = parts[1];
                 if (!currentServer.equalsIgnoreCase(targetServer)) return;
 
-                UUID playerUuid = UUID.fromString(parts[2]);
-                String warpName = parts[3];
+                String originServer = parts.length > 4 ? parts[2] : null;
+                UUID playerUuid = UUID.fromString(parts[parts.length >= 5 ? 3 : 2]);
+                String warpName = parts[parts.length >= 5 ? 4 : 3];
 
-                Warp.addPendingTeleport(playerUuid, warpName);
+                if (originServer != null) {
+                    Warp.addPendingTeleportWithOrigin(playerUuid, warpName, originServer);
+                } else {
+                    Warp.addPendingTeleport(playerUuid, warpName);
+                }
             }
             case "warp_delete" -> {
                 if (parts.length < 3) return;

@@ -691,12 +691,13 @@ public class Base implements Database {
         return warps;
     }
 
+
     @Override
     public List<Warp> getRecentWarps(Player player) {
         ThreadUtils.checkNotMain("This method can only be called async!");
         List<Warp> warps = new ArrayList<>();
         try (Connection conn = getConnection(); PreparedStatement stmt = createStatement(conn,
-                "SELECT DISTINCT warp_id FROM axplayerwarps_visits WHERE visitor_id = ? ORDER BY date DESC;",
+                "SELECT warp_id FROM (SELECT DISTINCT warp_id, date FROM axplayerwarps_visits WHERE visitor_id = ? ORDER BY date DESC) AS recent ORDER BY date DESC;",
                 getPlayerId(player))
         ) {
             try (ResultSet rs = stmt.executeQuery()) {

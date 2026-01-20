@@ -40,6 +40,7 @@ public class Warp {
 
     private static final ConcurrentHashMap<UUID, Consumer<String>> pendingValidations = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<UUID, String> pendingTeleports = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, String> pendingTeleportOriginServers = new ConcurrentHashMap<>();
 
     private final int id;
     private UUID owner;
@@ -110,8 +111,9 @@ public class Warp {
         return owner;
     }
 
-    public void setOwner(UUID owner) {
+    public void setOwner(UUID owner, String ownerName) {
         this.owner = owner;
+        this.ownerName = ownerName;
     }
 
     public Location getLocation() {
@@ -196,10 +198,6 @@ public class Warp {
         return earnedMoney;
     }
 
-    public void setEarnedMoney(double earnedMoney) {
-        this.earnedMoney = earnedMoney;
-    }
-
     public Material getIcon() {
         if (icon == null) {
             return Material.matchMaterial(CONFIG.getString("default-material", "PLAYER_HEAD"));
@@ -213,10 +211,6 @@ public class Warp {
 
     public String getOwnerName() {
         return ownerName;
-    }
-
-    public void setOwnerName(String ownerName) {
-        this.ownerName = ownerName;
     }
 
     public int getFavorites() {
@@ -237,10 +231,6 @@ public class Warp {
 
     public int getRatingAmount() {
         return rating.size();
-    }
-
-    public void setRating(HashMap<UUID, Integer> rating) {
-        this.rating = rating;
     }
 
     public int getVisits() {
@@ -302,10 +292,7 @@ public class Warp {
             if (!above.getType().isAir()) {
                 return true;
             }
-            if (!under.getType().isSolid()) {
-                return true;
-            }
-            return false;
+            return !under.getType().isSolid();
         });
     }
 
@@ -321,23 +308,31 @@ public class Warp {
 
     public static void addPendingTeleport(UUID playerUuid, String warpName) {
         pendingTeleports.put(playerUuid, warpName);
+        pendingTeleportOriginServers.remove(playerUuid);
+    }
+
+    public static void addPendingTeleportWithOrigin(UUID playerUuid, String warpName, String originServer) {
+        pendingTeleports.put(playerUuid, warpName);
+        pendingTeleportOriginServers.put(playerUuid, originServer);
     }
 
     public static void handlePlayerJoin(Player player) {
         String warpName = pendingTeleports.remove(player.getUniqueId());
+        String originServer = pendingTeleportOriginServers.remove(player.getUniqueId());
         if (warpName == null) return;
 
         WarpManager.getWarps().stream()
                 .filter(w -> w.getName().equalsIgnoreCase(warpName))
-                .findFirst().ifPresent(warp -> warp.completeTeleportPlayer(player));
+                .findFirst().ifPresent(warp -> warp.completeTeleportPlayer(player, originServer));
     }
+
 
     public void teleportPlayer(Player player) {
         String currentServer = RedisPlayerListServerAPI.getServerId();
 
         if (server != null && !server.equalsIgnoreCase(currentServer)) {
             UUID requestId = UUID.randomUUID();
-            boolean noConfirm = confirmUnsafe.hasCooldown(player);
+            boolean noConfirm = confirmPaid.hasCooldown(player) || confirmUnsafe.hasCooldown(player);
 
             // Format: validate_req:OriginServer:TargetServer:RequestId:PlayerUUID:WarpName:noConfirm
             String message = String.format("validate_req:%s:%s:%s:%s:%s:%b",
@@ -345,8 +340,13 @@ public class Warp {
 
             pendingValidations.put(requestId, (result) -> Bukkit.getScheduler().runTask(AxPlayerWarps.getInstance(), () -> {
                 if (result.equals("SUCCESS")) {
+                    // Before sending player, take the money on the origin server
+                    if (isPaid() && currency != null && !player.getUniqueId().equals(owner)) {
+                        currency.takeBalance(player.getUniqueId(), teleportPrice);
+                    }
+
                     // Remote validation passed, now send the player
-                    String telMessage = String.format("teleport:%s:%s:%s", server, player.getUniqueId(), name);
+                    String telMessage = String.format("teleport:%s:%s:%s:%s", server, currentServer, player.getUniqueId(), name);
                     AxPlayerWarps.PUBLISHER.publish(AxPlayerWarps.REDIS_CHANNEL, telMessage);
                     if (AxPlayerWarps.SERVER_TRANSFER != null) {
                         AxPlayerWarps.SERVER_TRANSFER.send(player, server);
@@ -357,9 +357,15 @@ public class Warp {
                     // If the remote server says it's unsafe, start the local confirmation cooldown
                     if (langKey.equals("confirm.unsafe")) {
                         confirmUnsafe.addCooldown(player, CONFIG.getLong("confirmation-milliseconds"));
+                    } else if (langKey.equals("confirm.paid")) {
+                        confirmPaid.addCooldown(player, CONFIG.getLong("confirmation-milliseconds"));
                     }
 
-                    MESSAGEUTILS.sendLang(player, langKey, Map.of("%warp%", getName()));
+                    Map<String, String> replacements = Map.of(
+                            "%warp%", getName(),
+                            "%price%", currency != null ? currency.getDisplayName().replace("%price%", WarpPlaceholders.format(teleportPrice)) : ""
+                    );
+                    MESSAGEUTILS.sendLang(player, langKey, replacements);
                 }
             }));
 
@@ -408,7 +414,13 @@ public class Warp {
             return;
         }
 
-        // 4. Safety Check
+        // 4. Payment Confirmation Check
+        if (!isOwner && isPaid() && !noConfirm) {
+            callback.accept(false, "confirm.paid");
+            return;
+        }
+
+        // 5. Safety Check
         isDangerous().thenAccept(dangerous -> {
             if (dangerous && !noConfirm) {
                 callback.accept(false, "confirm.unsafe");
@@ -430,6 +442,8 @@ public class Warp {
         }
 
         boolean isOwner = player.getUniqueId().equals(owner);
+
+        // Check if payment confirmation is needed and not yet confirmed
         if (!isOwner && isPaid() && !confirmPaid.hasCooldown(player)) {
             confirmPaid.addCooldown(player, CONFIG.getLong("confirmation-milliseconds"));
             MESSAGEUTILS.sendLang(player, "confirm.paid",
@@ -482,33 +496,58 @@ public class Warp {
     }
 
     public void completeTeleportPlayer(Player player) {
+        completeTeleportPlayer(player, null);
+    }
+
+    public void completeTeleportPlayer(Player player, @Nullable String originServer) {
+        // If this is a cross-server teleport, skip validation (already done on the origin server)
+        if (originServer != null && !originServer.equals(RedisPlayerListServerAPI.getServerId())) {
+            executeCompleteTeleport(player, originServer);
+            return;
+        }
+
+        // For local teleporting, validate first
         validateTeleport(player, true, bool -> {
             if (!bool) return;
-            player.closeInventory();
-            boolean isOwner = player.getUniqueId().equals(owner);
-            if (!isOwner && isPaid()) {
-                currency.takeBalance(player.getUniqueId(), teleportPrice);
-                earnedMoney += teleportPrice;
-                AxPlayerWarps.getThreadedQueue().submit(() -> AxPlayerWarps.getDatabase().updateWarp(this));
-                MESSAGEUTILS.sendLang(player, "money.take", Map.of("%price%",
-                        currency.getDisplayName().replace("%price%", WarpPlaceholders.format(teleportPrice))));
-            }
-
-            // send a message
-            MESSAGEUTILS.sendLang(player, "teleport.success", Map.of("%warp%", getName()));
-            confirmUnsafe.remove(player);
-            confirmPaid.remove(player);
-
-            PaperUtils.teleportAsync(player, location);
-
-            for (String m : CONFIG.getStringList("teleport-commands")) {
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), PlaceholderHandler.parse(m.replace("%player%", player.getName()), this, player));
-            }
-
-            AxPlayerWarps.getThreadedQueue().submit(() -> {
-                AxPlayerWarps.getDatabase().addVisit(player, this);
-            });
+            executeCompleteTeleport(player, null);
         });
+    }
+
+
+    private void executeCompleteTeleport(Player player, @Nullable String originServer) {
+        player.closeInventory();
+        boolean isOwner = player.getUniqueId().equals(owner);
+
+        // Only take money if NOT a cross-server teleport (it was already taken on origin server)
+        if (!isOwner && isPaid() && (originServer == null || originServer.equals(RedisPlayerListServerAPI.getServerId()))) {
+            if (currency != null) {
+                currency.takeBalance(player.getUniqueId(), teleportPrice);
+                Bukkit.getLogger().info("[AxPlayerWarps] Money taken on server: " + RedisPlayerListServerAPI.getServerId() + ", player: " + player.getUniqueId() + ", amount: " + teleportPrice);
+            }
+            earnedMoney += teleportPrice;
+            AxPlayerWarps.getThreadedQueue().submit(() -> AxPlayerWarps.getDatabase().updateWarp(this));
+
+            MESSAGEUTILS.sendLang(player, "money.take", Map.of("%price%",
+                    currency.getDisplayName().replace("%price%", WarpPlaceholders.format(teleportPrice))));
+        } else if (!isOwner && isPaid() && originServer != null && !originServer.equals(RedisPlayerListServerAPI.getServerId())) {
+            // For cross-server teleports, only update earned money (money was already taken on origin)
+            earnedMoney += teleportPrice;
+            AxPlayerWarps.getThreadedQueue().submit(() -> AxPlayerWarps.getDatabase().updateWarp(this));
+        }
+
+        // send a message
+        MESSAGEUTILS.sendLang(player, "teleport.success", Map.of("%warp%", getName()));
+        confirmUnsafe.remove(player);
+        confirmPaid.remove(player);
+
+        // Schedule teleport for next tick with 5L delay to avoid PlayerJoinEvent conflicts with Folia
+        Scheduler.get().runLater(scheduledTask -> PaperUtils.teleportAsync(player, location), 5L);
+
+        for (String m : CONFIG.getStringList("teleport-commands")) {
+            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), PlaceholderHandler.parse(m.replace("%player%", player.getName()), this, player));
+        }
+
+        AxPlayerWarps.getThreadedQueue().submit(() -> AxPlayerWarps.getDatabase().addVisit(player, this));
     }
 
     public void delete() {

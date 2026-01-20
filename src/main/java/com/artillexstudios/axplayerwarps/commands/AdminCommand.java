@@ -70,7 +70,7 @@ public class AdminCommand implements OrphanCommand {
     @CommandPermission("axplayerwarps.admin.setowner")
     public void setOwner(@NotNull CommandSender sender, @AllWarps Warp warp, OfflinePlayer player) {
         AxPlayerWarps.getThreadedQueue().submit(() -> {
-            warp.setOwner(player.getUniqueId());
+            warp.setOwner(player.getUniqueId(), player.getName());
             AxPlayerWarps.getDatabase().updateWarp(warp);
             AxPlayerWarps.getDatabase().removeFromList(warp, AccessList.WHITELIST, player);
             AxPlayerWarps.getDatabase().removeFromList(warp, AccessList.BLACKLIST, player);
